@@ -574,6 +574,17 @@ function Learn({ config, onExit, known, flagged, toggleKnown, toggleFlag }) {
     [list.length]
   );
 
+  // Mark known / flag, then move on to the next question automatically.
+  const handleToggleKnown = useCallback((key) => {
+    toggleKnown(key);
+    go(1);
+  }, [toggleKnown, go]);
+
+  const handleToggleFlag = useCallback((key) => {
+    toggleFlag(key);
+    go(1);
+  }, [toggleFlag, go]);
+
   useEffect(() => {
     const onKey = (e) => {
       if (e.target.tagName === "INPUT") return;
@@ -709,11 +720,11 @@ function Learn({ config, onExit, known, flagged, toggleKnown, toggleFlag }) {
           <Button onClick={() => go(1)} disabled={idx >= list.length - 1}>Next</Button>
         </div>
         <div className="flex" style={{ gap: 8 }}>
-          <Button size="sm" tone="quiet" onClick={() => toggleFlag(q.key)}
+          <Button size="sm" tone="quiet" onClick={() => handleToggleFlag(q.key)}
             style={isFlagged ? { borderColor: C.gold, color: C.gold, background: C.goldSoft } : undefined}>
             {isFlagged ? "Flagged" : "Flag this"}
           </Button>
-          <Button size="sm" tone="quiet" onClick={() => toggleKnown(q.key)}
+          <Button size="sm" tone="quiet" onClick={() => handleToggleKnown(q.key)}
             style={isKnown ? { borderColor: C.ok, color: C.ok, background: C.okSoft } : undefined}>
             {isKnown ? "Known" : "Mark as known"}
           </Button>
