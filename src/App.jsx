@@ -807,6 +807,13 @@ function Exam({ config, questions, onFinish, onExit }) {
     setDraft(answers[q.key]?.value ?? (Array.isArray(q.answers) ? q.answers.map(() => "") : null));
   }, [idx]);
 
+  // `draft` is set by an effect, which runs after render. On the first render
+  // after moving to a new question it still holds the previous question's value,
+  // so derive a safe array rather than reading `draft` directly.
+  const fibDraft = Array.isArray(draft)
+    ? draft
+    : (q && Array.isArray(q.answers) ? q.answers.map(() => "") : []);
+
   const grade = (question, value) => {
     if (value === null || value === undefined) return false;
     if (question.kind === "tf") return value === question.answer;
@@ -839,7 +846,7 @@ function Exam({ config, questions, onFinish, onExit }) {
     onFinish({ results, seconds });
   };
 
-  const submitFib = () => record(Array.isArray(draft) ? draft.slice() : []);
+  const submitFib = () => record(fibDraft.slice());
 
   useEffect(() => {
     const onKey = (e) => {
@@ -904,9 +911,9 @@ function Exam({ config, questions, onFinish, onExit }) {
         <p style={{ fontFamily: DISPLAY, fontSize: 21, lineHeight: 1.62, color: C.ink, margin: "0 0 26px", maxWidth: "60ch" }}>
           {q.kind === "fib" ? (
             <FibSentence text={q.text} render={(i) => (
-              <input value={draft[i] ?? ""} disabled={showResult} autoFocus={i === 0}
+              <input value={fibDraft[i] ?? ""} disabled={showResult} autoFocus={i === 0}
                 onChange={(e) => {
-                  const d = draft.slice();
+                  const d = fibDraft.slice();
                   d[i] = e.target.value;
                   setDraft(d);
                 }}
@@ -971,7 +978,7 @@ function Exam({ config, questions, onFinish, onExit }) {
 
         {q.kind === "fib" && !showResult && (
           <Button onClick={submitFib}
-            disabled={!Array.isArray(draft) || draft.every((d) => !String(d).trim())}>Check answer</Button>
+            disabled={fibDraft.length === 0 || fibDraft.every((d) => !String(d).trim())}>Check answer</Button>
         )}
 
         {showResult && (
