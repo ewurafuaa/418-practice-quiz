@@ -16,18 +16,59 @@ const SECTION_KINDS = { tf: "tf", mcq: "mcq", fib: "fib", fib2: "fib" };
 
 function buildBank() {
   const out = [];
+  const problems = [];
+
   CHAPTERS.forEach((ch) => {
     Object.keys(SECTION_KINDS).forEach((section) => {
       const kind = SECTION_KINDS[section];
       (ch[section] || []).forEach((row) => {
         const [id, text] = row;
+        const where = `${ch.id} / ${section} / Q${id}`;
+
+        if (typeof text !== "string") {
+          problems.push(`${where}: question text is missing or not a string`);
+          return;
+        }
         const base = { key: ch.id + "-" + id, id, chapter: ch.id, section, kind, text };
-        if (kind === "tf") out.push({ ...base, answer: row[2], note: row[3] || "" });
-        else if (kind === "mcq") out.push({ ...base, options: row[2], correct: row[3], note: row[4] || "" });
-        else out.push({ ...base, answers: row[2], note: row[3] || "" });
+
+        if (kind === "tf") {
+          if (row[2] !== 0 && row[2] !== 1) {
+            problems.push(`${where}: answer must be 0 or 1, got ${JSON.stringify(row[2])}`);
+            return;
+          }
+          out.push({ ...base, answer: row[2], note: row[3] || "" });
+
+        } else if (kind === "mcq") {
+          if (!Array.isArray(row[2]) || row[2].length < 2) {
+            problems.push(`${where}: options must be an array of at least 2 items`);
+            return;
+          }
+          if (typeof row[3] !== "number" || row[3] < 0 || row[3] >= row[2].length) {
+            problems.push(`${where}: correct index ${JSON.stringify(row[3])} is out of range`);
+            return;
+          }
+          out.push({ ...base, options: row[2], correct: row[3], note: row[4] || "" });
+
+        } else {
+          if (!Array.isArray(row[2]) || row[2].length === 0) {
+            problems.push(`${where}: answers must be a non-empty array`);
+            return;
+          }
+          const blanks = (text.match(/___/g) || []).length;
+          if (blanks !== row[2].length) {
+            problems.push(`${where}: ${blanks} blank(s) but ${row[2].length} answer(s)`);
+          }
+          out.push({ ...base, answers: row[2], note: row[3] || "" });
+        }
       });
     });
   });
+
+  if (problems.length) {
+    console.warn(
+      `Skipped or flagged ${problems.length} malformed question(s):\n` + problems.join("\n")
+    );
+  }
   return out;
 }
 const BANK = buildBank();
@@ -762,14 +803,16 @@ function Exam({ config, questions, onFinish, onExit }) {
 
   const q = questions[idx];
   useEffect(() => {
-    setDraft(answers[q.key]?.value ?? (q.kind === "fib" ? q.answers.map(() => "") : null));
+    if (!q) return;
+    setDraft(answers[q.key]?.value ?? (Array.isArray(q.answers) ? q.answers.map(() => "") : null));
   }, [idx]);
 
   const grade = (question, value) => {
     if (value === null || value === undefined) return false;
     if (question.kind === "tf") return value === question.answer;
     if (question.kind === "mcq") return value === question.correct;
-    return question.answers.every((a, i) => fibMatch(value[i], a));
+    return Array.isArray(question.answers)
+      && question.answers.every((a, i) => fibMatch(value[i], a));
   };
 
   const record = (value) => {
@@ -796,10 +839,11 @@ function Exam({ config, questions, onFinish, onExit }) {
     onFinish({ results, seconds });
   };
 
-  const submitFib = () => record(draft.slice());
+  const submitFib = () => record(Array.isArray(draft) ? draft.slice() : []);
 
   useEffect(() => {
     const onKey = (e) => {
+      if (!q) return;
       if (e.target.tagName === "INPUT") {
         if (e.key === "Enter" && q.kind === "fib" && !showResult) submitFib();
         return;
@@ -811,8 +855,9 @@ function Exam({ config, questions, onFinish, onExit }) {
         if (e.key.toLowerCase() === "t") record(1);
         if (e.key.toLowerCase() === "f") record(0);
       }
-      if (q.kind === "mcq" && !showResult && "1234".includes(e.key)) {
-        record(q.order[Number(e.key) - 1]);
+      if (q.kind === "mcq" && !showResult && Array.isArray(q.order) && "1234".includes(e.key)) {
+        const pick = q.order[Number(e.key) - 1];
+        if (pick !== undefined) record(pick);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -827,6 +872,8 @@ function Exam({ config, questions, onFinish, onExit }) {
 
   const answeredCount = Object.keys(answers).length;
   const correctCount = Object.values(answers).filter((a) => a.correct).length;
+
+  if (!q) return null;
 
   return (
     <div className="mx-auto px-6 py-8" style={{ maxWidth: 820 }}>
@@ -923,7 +970,8 @@ function Exam({ config, questions, onFinish, onExit }) {
         )}
 
         {q.kind === "fib" && !showResult && (
-          <Button onClick={submitFib} disabled={draft.every((d) => !String(d).trim())}>Check answer</Button>
+          <Button onClick={submitFib}
+            disabled={!Array.isArray(draft) || draft.every((d) => !String(d).trim())}>Check answer</Button>
         )}
 
         {showResult && (
@@ -1072,6 +1120,31 @@ function Results({ data, onRetryMissed, onNewTest, onHome }) {
 
 /* ----------------------------- app ----------------------------- */
 
+class Boundary extends React.Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { console.error("Study app crashed:", err, info); }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <div className="mx-auto px-6 py-16" style={{ maxWidth: 620 }}>
+        <p style={{ fontFamily: DISPLAY, fontSize: 22, fontWeight: 600, color: C.ink }}>
+          Something broke on this question.
+        </p>
+        <p style={{ fontFamily: SANS, fontSize: 15, color: C.muted, marginTop: 8 }}>
+          {String(this.state.err && this.state.err.message)}
+        </p>
+        <p style={{ fontFamily: SANS, fontSize: 14, color: C.faint, marginTop: 8 }}>
+          The details are in the browser console.
+        </p>
+        <Button tone="gold" style={{ marginTop: 20 }} onClick={() => window.location.reload()}>
+          Reload
+        </Button>
+      </div>
+    );
+  }
+}
+
 export default function StudyApp() {
   const [screen, setScreen] = useState("home");
   const [mode, setMode] = useState("learn");
@@ -1173,6 +1246,7 @@ export default function StudyApp() {
         </div>
       </header>
 
+      <Boundary>
       {screen === "home" && (
         <Home stats={{ knownCount: known.length, history }}
           onPick={(m) => { setMode(m); setScreen("chapters"); }} />
@@ -1202,6 +1276,7 @@ export default function StudyApp() {
           onRetryMissed={(qs) => { setQuestions(buildExam(config, qs)); setScreen("exam"); }}
           onNewTest={() => setScreen("setup")} onHome={() => setScreen("home")} />
       )}
+      </Boundary>
       </div>
     </div>
   );
